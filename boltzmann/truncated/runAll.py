@@ -3,15 +3,14 @@ import subprocess
 import glob
 
 def run_lsfr_on_all_csvs():
-    target_script = "LSFR-25.py"
+    target_script = "LSFR-PRO.py"
 
-    # ignore = [
-    #     'freezing_1M.csv',
-    #     'freezing_10k.csv',
-    #     'freezing_100k.csv'
-    # ]
-
-    ignore = []
+    ignore = [
+        'freezing_1M.csv',
+        'freezing_10k.csv',
+        'freezing_100k.csv',
+        'roomTemp.csv'
+    ]
     
     csv_files = glob.glob("*.csv")
     

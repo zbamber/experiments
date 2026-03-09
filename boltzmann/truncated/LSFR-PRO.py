@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Least Squares Fitting Routine for Year 1 lab.
-Lloyd Cawthorne 12/06/20
+Zak Bamber 09/03/2026
 
-Adapted from lsfr.py by Abie Marshall 2016
-    Adapted from LSFR.m credits to:
-    Jordan Hulme
-    Adam Petrus
-    Ian Duerdoth
-    Paddy Leahy
+Adapted from LSFR-25.py by Lloyd Cawthorne 12/06/20
+    Adapted from lsfr.py by Abie Marshall 2016
+        Adapted from LSFR.m credits to:
+        Jordan Hulme
+        Adam Petrus
+        Ian Duerdoth
+        Paddy Leahy
 
 Reads in and validates data assuming given in columns: independent variable,
 dependent variable, uncertainty on dependent variable.
@@ -33,16 +34,23 @@ to edit the file input and plot attributes.
 
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
+if len(sys.argv) > 2:
+    imageOnly = sys.argv[2]
+else:
+    imageOnly = False
+
+print(f'running: {sys.argv[1]}')
 # File reading details
-FILE_NAME = 'experiment5.csv'  # Remember to include the extension
+FILE_NAME = sys.argv[1]  # Remember to include the extension
 SKIP_FIRST_LINE = False
 DELIMITER = ','  # Set to space, ' ', if working with .txt file without commas
 
 # Plotting details
-PLOT_TITLE = 'V_out against e^-t'
-X_LABEL = 'e^-t'
-Y_LABEL = 'V_out'
+PLOT_TITLE = ''
+X_LABEL = ''
+Y_LABEL = ''
 AUTO_X_LIMITS = True
 X_LIMITS = [0., 10.]  # Not used unless AUTO_X_LIMITS = False
 AUTO_Y_LIMITS = True
@@ -56,7 +64,7 @@ MARKER_STYLE = 'x'  # See documentation for options:
 MARKER_COLOUR = 'black'
 GRID_LINES = True
 SAVE_FIGURE = True
-FIGURE_NAME = 'experiment5.png'
+FIGURE_NAME = FILE_NAME.strip('csv') + 'png'
 FIGURE_RESOLUTION = 400  # in dpi
 
 
@@ -115,8 +123,8 @@ def validate_line(line):
             print('{0:s} is nonnumerical.'.format(entry))
             return False, line_split
     line_floats = np.array([float(line_split[0]), float(line_split[1]),
-                            float(line_split[2])])
-    if line_floats[2] <= 0:
+                            float(line_split[2]), float(line_split[3])])
+    if line_floats[3] <= 0:
         print('Line omitted: {0:s}.'.format(line.strip('\n')))
         print('Uncertainty must be greater than zero.')
         return False, line_floats
@@ -138,12 +146,13 @@ def open_file(file_name=FILE_NAME, skip_first_line=SKIP_FIRST_LINE):
     x_data = np.array([])
     y_data = np.array([])
     y_uncertainties = np.array([])
+    x_uncertainties = np.array([])
     try:
-        raw_file_data = open(file_name, 'r')
+        raw_file_data = open(file_name, 'r', encoding='utf-8-sig')
     except FileNotFoundError:
         print("File '{0:s}' cannot be found.".format(file_name))
         print('Check it is in the correct directory.')
-        return x_data, y_data, y_uncertainties
+        return x_data, x_uncertainties, y_data, y_uncertainties
     for line in raw_file_data:
         if skip_first_line:
             skip_first_line = False
@@ -151,10 +160,11 @@ def open_file(file_name=FILE_NAME, skip_first_line=SKIP_FIRST_LINE):
             line_valid, line_data = validate_line(line)
             if line_valid:
                 x_data = np.append(x_data, line_data[0])
-                y_data = np.append(y_data, line_data[1])
-                y_uncertainties = np.append(y_uncertainties, line_data[2])
+                x_uncertainties = np.append(x_uncertainties, line_data[1])
+                y_data = np.append(y_data, line_data[2])
+                y_uncertainties = np.append(y_uncertainties, line_data[3])
     raw_file_data.close()
-    return x_data, y_data, y_uncertainties
+    return x_data, x_uncertainties, y_data, y_uncertainties
 
 
 def fitting_procedure(x_data, y_data, y_uncertainties):
@@ -278,6 +288,8 @@ def create_plot(x_data, y_data, y_uncertainties, parameters,
 
     if SAVE_FIGURE:
         plt.savefig(FIGURE_NAME, dpi=FIGURE_RESOLUTION, transparent=True)
+    if imageOnly:
+        return None
     plt.show()
     return None
 
@@ -286,10 +298,19 @@ def main():
     """Main routine. Calls each function in turn.
     Returns:
         None"""
-    x_data, y_data, y_uncertainties = open_file()
-    parameters, parameter_uncertainties = fitting_procedure(x_data, y_data,
-                                                            y_uncertainties)
-    create_plot(x_data, y_data, y_uncertainties, parameters,
+    x_data, x_uncertainties, y_data, y_uncertainties = open_file()
+    
+    effective_uncertainties = np.copy(y_uncertainties)
+    for i in range(3):
+        parameters, parameter_uncertainties = fitting_procedure(x_data, y_data,
+                                                                effective_uncertainties)
+        effective_uncertainties = np.sqrt(y_uncertainties**2 +
+                                         (parameters[0] * x_uncertainties)**2)
+    
+    parameters, parameter_uncertainties = fitting_procedure(
+            x_data, y_data, effective_uncertainties)
+    
+    create_plot(x_data, y_data, effective_uncertainties, parameters,
                 parameter_uncertainties)
     return None
 
