@@ -3,16 +3,11 @@ import subprocess
 import glob
 
 def run_lsfr_on_all_csvs():
-    target_script = "LSFR-25.py"
+    target_script = "lsfr-25.py"
 
-    ignore = [
-        'freezing_1M.csv',
-        'freezing_10k.csv',
-        'freezing_100k.csv',
-        'roomTemp.csv'
-    ]
+    ignore = []
     
-    csv_files = glob.glob("*.csv")
+    csv_files = glob.glob("Data/*processed*.csv")
     
     if not csv_files:
         print("No CSV files found in this directory.")
@@ -21,7 +16,7 @@ def run_lsfr_on_all_csvs():
     print(f"Found {len(csv_files)} files. Starting processing...")
 
     for file in csv_files:
-        if file in ignore:
+        if 'processed' not in file or file in ignore:
             continue
         print(f"--- Running {target_script} on {file} ---")
         
