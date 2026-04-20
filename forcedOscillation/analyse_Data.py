@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import glob
 
-VOLTAGE_UNCERTAINTY = 0.0005
+VOLTAGE_UNCERTAINTY = 0.028
 fileList = [f for f in glob.glob('Data/*.csv') if '_processed' not in f]
 
 for fileName in fileList:
