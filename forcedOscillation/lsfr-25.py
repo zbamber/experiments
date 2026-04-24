@@ -264,6 +264,28 @@ def create_plot(x_data, y_data, y_uncertainties, parameters,
                             (0, 0), (100, -70), xycoords='axes fraction',
                             textcoords='offset points', va='top',
                             fontsize='10')
+    
+    gamma = -2.0 * parameters[0]
+    periods = np.diff(x_data[:30])
+    f_d = 1. / np.mean(periods)
+    Q_factor = (2.0 * np.pi * f_d) / gamma
+
+    axes_main_plot.annotate(('Parameters:'), (0, 0),
+                            (190, -35), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+    
+    axes_main_plot.annotate((r'$\gamma$ = {0:6.4f} s^-1'.format(gamma)), (0, 0),
+                            (190, -50), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+                            
+    axes_main_plot.annotate(('f_d = {0:6.3f} Hz'.format(f_d)), (0, 0),
+                            (190, -65), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+                            
+    axes_main_plot.annotate(('Q = {0:6.1f}'.format(Q_factor)), (0, 0),
+                            (190, -80), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+
     # Residuals plot
     residuals = y_data - linear_function(x_data, parameters)
     axes_residuals = figure.add_subplot(414)
