@@ -1,0 +1,36 @@
+import pandas as pd
+import numpy as np
+import glob
+
+RESISTOR_ERROR = 0.01 # 1% error in the resistance value, which is a common tolerance for resistors.
+fileList = [f for f in glob.glob('data/*.csv') if '_processed' not in f]
+
+for fileName in fileList:
+    data = pd.read_csv(fileName, usecols=[0,1,2,3], names=['supply_voltage', 'supply_voltage_error', 'diode_voltage', 'diode_voltage_error'], header=None, sep='\t')
+    supply_voltage = data['supply_voltage'].to_numpy()
+    supply_voltage_error = data['supply_voltage_error'].to_numpy()
+    diode_voltage = data['diode_voltage'].to_numpy()
+    diode_voltage_error = data['diode_voltage_error'].to_numpy()
+
+    # match fileName[-8:-5]:
+    #     case '001':
+    #         resistance = 1e6 # 1 MΩ
+    #     case '010':
+    #         resistance = 1e4 # 10 kΩ
+    #     case '100':
+    #         resistance = 1e5 # 100 kΩ
+
+    resistor_voltage = supply_voltage - diode_voltage
+    resistor_voltage_error = np.sqrt(supply_voltage_error**2 + diode_voltage_error**2)
+
+    ln_resistor_voltage = np.log(resistor_voltage)
+    ln_resistor_voltage_error = resistor_voltage_error / resistor_voltage
+
+    output = pd.DataFrame({
+        'diode_voltage': diode_voltage,
+        'ln_resistor_voltage': ln_resistor_voltage,
+        'ln_resistor_voltage_error': ln_resistor_voltage_error
+    })
+
+    fileName = fileName.replace('.csv', '_processed.csv')
+    output.to_csv(fileName, index=False, header=False)
