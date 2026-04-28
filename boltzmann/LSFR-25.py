@@ -33,16 +33,19 @@ to edit the file input and plot attributes.
 
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
+imageOnly = sys.argv[2]
+print(f'running: {sys.argv[1]}')
 # File reading details
-FILE_NAME = 'experiment5.csv'  # Remember to include the extension
+FILE_NAME = sys.argv[1]  # Remember to include the extension
 SKIP_FIRST_LINE = False
 DELIMITER = ','  # Set to space, ' ', if working with .txt file without commas
 
 # Plotting details
-PLOT_TITLE = 'V_out against e^-t'
-X_LABEL = 'e^-t'
-Y_LABEL = 'V_out'
+PLOT_TITLE = ''
+X_LABEL = ''
+Y_LABEL = ''
 AUTO_X_LIMITS = True
 X_LIMITS = [0., 10.]  # Not used unless AUTO_X_LIMITS = False
 AUTO_Y_LIMITS = True
@@ -56,7 +59,7 @@ MARKER_STYLE = 'x'  # See documentation for options:
 MARKER_COLOUR = 'black'
 GRID_LINES = True
 SAVE_FIGURE = True
-FIGURE_NAME = 'experiment5.png'
+FIGURE_NAME = FILE_NAME.strip('csv') + 'png'
 FIGURE_RESOLUTION = 400  # in dpi
 
 
@@ -139,7 +142,7 @@ def open_file(file_name=FILE_NAME, skip_first_line=SKIP_FIRST_LINE):
     y_data = np.array([])
     y_uncertainties = np.array([])
     try:
-        raw_file_data = open(file_name, 'r')
+        raw_file_data = open(file_name, 'r', encoding='utf-8-sig')
     except FileNotFoundError:
         print("File '{0:s}' cannot be found.".format(file_name))
         print('Check it is in the correct directory.')
@@ -213,7 +216,8 @@ def create_plot(x_data, y_data, y_uncertainties, parameters,
         None
     """
     # Main plot
-    figure = plt.figure(figsize=(8, 6))
+    # Ensure the figure background is white (not transparent)
+    figure = plt.figure(figsize=(8, 6), facecolor='white')
 
     axes_main_plot = figure.add_subplot(211)
 
@@ -260,6 +264,28 @@ def create_plot(x_data, y_data, y_uncertainties, parameters,
                             (0, 0), (100, -70), xycoords='axes fraction',
                             textcoords='offset points', va='top',
                             fontsize='10')
+    
+    gamma = -2.0 * parameters[0]
+    periods = np.diff(x_data[:30])
+    f_d = 1. / np.mean(periods)
+    Q_factor = (2.0 * np.pi * f_d) / gamma
+
+    axes_main_plot.annotate(('Parameters:'), (0, 0),
+                            (190, -35), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+    
+    axes_main_plot.annotate((r'$\gamma$ = {0:6.4f} s^-1'.format(gamma)), (0, 0),
+                            (190, -50), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+                            
+    axes_main_plot.annotate(('f_d = {0:6.3f} Hz'.format(f_d)), (0, 0),
+                            (190, -65), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+                            
+    axes_main_plot.annotate(('Q = {0:6.1f}'.format(Q_factor)), (0, 0),
+                            (190, -80), xycoords='axes fraction', va='top',
+                            textcoords='offset points', fontsize='10', color='black')
+
     # Residuals plot
     residuals = y_data - linear_function(x_data, parameters)
     axes_residuals = figure.add_subplot(414)
@@ -277,7 +303,9 @@ def create_plot(x_data, y_data, y_uncertainties, parameters,
         axes_residuals.set_ylim(Y_LIMITS)
 
     if SAVE_FIGURE:
-        plt.savefig(FIGURE_NAME, dpi=FIGURE_RESOLUTION, transparent=True)
+        plt.savefig(FIGURE_NAME, dpi=FIGURE_RESOLUTION, transparent=False)
+    if imageOnly:
+        return None
     plt.show()
     return None
 

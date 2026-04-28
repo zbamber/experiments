@@ -1,10 +1,12 @@
 import os
 import glob
 
-def truncate_csvs(lines_to_remove=5):
+def truncate_csvs(lines_to_remove=8):
     """Reads all CSVs in the current directory, removes the last N lines, 
     and saves them to a 'truncated' subdirectory."""
     
+    ignore = []
+
     # Create the target directory if it doesn't exist
     output_dir = 'truncated'
     os.makedirs(output_dir, exist_ok=True)
@@ -19,6 +21,10 @@ def truncate_csvs(lines_to_remove=5):
     print(f"Found {len(csv_files)} files. Starting truncation...")
 
     for file in csv_files:
+
+        if 'processed' not in file or file in ignore:
+            continue
+
         # Read the file (using utf-8-sig to handle Excel BOMs automatically)
         with open(file, 'r', encoding='utf-8-sig') as f:
             lines = f.readlines()
@@ -35,7 +41,7 @@ def truncate_csvs(lines_to_remove=5):
         with open(output_path, 'w', encoding='utf-8') as f:
             f.writelines(truncated_lines)
             
-        print(f"Chipped 5 lines off {file} -> Saved to /{output_dir}")
+        print(f"Chipped {lines_to_remove} lines off {file} -> Saved to /{output_dir}")
 
     print("\nAll files successfully truncated!")
 
