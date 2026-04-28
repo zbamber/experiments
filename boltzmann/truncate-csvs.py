@@ -8,11 +8,11 @@ def truncate_csvs(lines_to_remove=8):
     ignore = []
 
     # Create the target directory if it doesn't exist
-    output_dir = 'truncated'
+    output_dir = 'data/truncated'
     os.makedirs(output_dir, exist_ok=True)
     
-    # Find all CSV files in the current directory
-    csv_files = glob.glob("*.csv")
+    # Find all CSV files in the data directory
+    csv_files = glob.glob("data/*_processed.csv")
     
     if not csv_files:
         print("No CSV files found in this directory.")
@@ -36,8 +36,8 @@ def truncate_csvs(lines_to_remove=8):
             print(f"Skipping {file}: Only has {len(lines)} lines.")
             continue
             
-        # Save the new file into the subdirectory
-        output_path = os.path.join(output_dir, file)
+        # Save the new file into the subdirectory (use basename to avoid nested paths)
+        output_path = os.path.join(output_dir, os.path.basename(file))
         with open(output_path, 'w', encoding='utf-8') as f:
             f.writelines(truncated_lines)
             
