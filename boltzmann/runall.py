@@ -7,8 +7,10 @@ def run_lsfr_on_all_csvs():
 
     ignore = []
     
-    csv_files = glob.glob("Data/truncated/*processed*.csv")
-    
+    # csv_files = glob.glob("Data/truncated/*processed*.csv")
+    # csv_files = glob.glob("Data/*_processed.csv")
+    csv_files = glob.glob("*_processed.csv")
+
     if not csv_files:
         print("No CSV files found in this directory.")
         return

@@ -34,6 +34,7 @@ to edit the file input and plot attributes.
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import os
 
 imageOnly = sys.argv[2]
 print(f'running: {sys.argv[1]}')
@@ -42,10 +43,27 @@ FILE_NAME = sys.argv[1]  # Remember to include the extension
 SKIP_FIRST_LINE = False
 DELIMITER = ','  # Set to space, ' ', if working with .txt file without commas
 
-# Plotting details
-PLOT_TITLE = ''
-X_LABEL = ''
-Y_LABEL = ''
+basename = os.path.basename(FILE_NAME)
+parts = basename.split('_')
+if parts[0] == 'k':
+    X_LABEL = 'Temperature - Celsius'
+    Y_LABEL = '1/gradient'
+    PLOT_TITLE = '1/gradient vs Temperature'
+else:
+    temp_celsius = float(parts[0])
+    T = temp_celsius + 273.15
+
+    resistance_raw = parts[1]
+    if resistance_raw.endswith('k'):
+        # Strip the 'k', convert to int to remove leading zeros, re-add unit
+        resistance_display = f"{int(resistance_raw[:-1])} kΩ"
+    else:
+        resistance_display = f"{int(resistance_raw[:-1])} MΩ"
+
+    PLOT_TITLE = f'ln($V_{{net}}$) vs Diode Voltage at {temp_celsius:.0f}°C, R = {resistance_display}'
+    X_LABEL    = r'Diode Voltage $V_d$ / V'
+    Y_LABEL    = r'$\ln(V_{net})$'
+
 AUTO_X_LIMITS = True
 X_LIMITS = [0., 10.]  # Not used unless AUTO_X_LIMITS = False
 AUTO_Y_LIMITS = True
@@ -137,6 +155,8 @@ def open_file(file_name=FILE_NAME, skip_first_line=SKIP_FIRST_LINE):
     Raises:
         FileNotFoundError
     """
+
+
     # Create empty arrays ready to store the data
     x_data = np.array([])
     y_data = np.array([])
@@ -264,27 +284,6 @@ def create_plot(x_data, y_data, y_uncertainties, parameters,
                             (0, 0), (100, -70), xycoords='axes fraction',
                             textcoords='offset points', va='top',
                             fontsize='10')
-    
-    gamma = -2.0 * parameters[0]
-    periods = np.diff(x_data[:30])
-    f_d = 1. / np.mean(periods)
-    Q_factor = (2.0 * np.pi * f_d) / gamma
-
-    axes_main_plot.annotate(('Parameters:'), (0, 0),
-                            (190, -35), xycoords='axes fraction', va='top',
-                            textcoords='offset points', fontsize='10', color='black')
-    
-    axes_main_plot.annotate((r'$\gamma$ = {0:6.4f} s^-1'.format(gamma)), (0, 0),
-                            (190, -50), xycoords='axes fraction', va='top',
-                            textcoords='offset points', fontsize='10', color='black')
-                            
-    axes_main_plot.annotate(('f_d = {0:6.3f} Hz'.format(f_d)), (0, 0),
-                            (190, -65), xycoords='axes fraction', va='top',
-                            textcoords='offset points', fontsize='10', color='black')
-                            
-    axes_main_plot.annotate(('Q = {0:6.1f}'.format(Q_factor)), (0, 0),
-                            (190, -80), xycoords='axes fraction', va='top',
-                            textcoords='offset points', fontsize='10', color='black')
 
     # Residuals plot
     residuals = y_data - linear_function(x_data, parameters)
@@ -315,9 +314,20 @@ def main():
     Returns:
         None"""
     x_data, y_data, y_uncertainties = open_file()
+    T_error = 0.3
+
+    true_uncertainties = np.copy(y_uncertainties)
+    if parts[0] != 'k':
+        for _ in range(3):
+            parameters, parameter_uncertainties = fitting_procedure(x_data, y_data,
+                                                                true_uncertainties)
+            
+            temp_errors = x_data * T_error * parameters[0] / T
+            true_uncertainties = np.sqrt(temp_errors**2 + y_uncertainties**2)
+    
     parameters, parameter_uncertainties = fitting_procedure(x_data, y_data,
-                                                            y_uncertainties)
-    create_plot(x_data, y_data, y_uncertainties, parameters,
+                                                            true_uncertainties)
+    create_plot(x_data, y_data, true_uncertainties, parameters,
                 parameter_uncertainties)
     return None
 
