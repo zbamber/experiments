@@ -60,9 +60,9 @@ else:
     else:
         resistance_display = f"{int(resistance_raw[:-1])} MΩ"
 
-    PLOT_TITLE = f'ln($V_{{net}}$) vs Diode Voltage at {temp_celsius:.0f}°C, R = {resistance_display}'
+    PLOT_TITLE = f'ln($V_{{R}}$) vs Diode Voltage at {temp_celsius:.0f}°C, R = {resistance_display}'
     X_LABEL    = r'Diode Voltage $V_d$ / V'
-    Y_LABEL    = r'$\ln(V_{net})$'
+    Y_LABEL    = r'$\ln(V_{R})$'
 
 AUTO_X_LIMITS = True
 X_LIMITS = [0., 10.]  # Not used unless AUTO_X_LIMITS = False

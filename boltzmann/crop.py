@@ -17,8 +17,8 @@ def batch_crop_images():
     
     left = 191
     top = 193
-    right = original_width - 316  # 2884
-    bottom = original_height - 176 # 2224
+    right = original_width - 300  # 2884
+    bottom = original_height - 176 - 637 # 2224
     
     crop_box = (left, top, right, bottom)
 
