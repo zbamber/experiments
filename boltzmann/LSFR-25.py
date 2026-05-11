@@ -47,8 +47,8 @@ basename = os.path.basename(FILE_NAME)
 parts = basename.split('_')
 if parts[0] == 'k':
     X_LABEL = 'Temperature - Celsius'
-    Y_LABEL = '1/gradient'
-    PLOT_TITLE = '1/gradient vs Temperature'
+    Y_LABEL = '1/m'
+    PLOT_TITLE = '1/m vs Temperature'
 else:
     temp_celsius = float(parts[0])
     T = temp_celsius + 273.15
