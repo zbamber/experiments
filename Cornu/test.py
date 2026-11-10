@@ -9,7 +9,7 @@ Y = 800
 W = 826
 H = 170
 
-image_path = "C:/Users/profp/repos/ScientificComputing/experiments/Cornu/photos/Cornu Photo's 1.0/0.5kg.JPG"
+image_path = "C:/Users/profp/repos/experiments/Cornu/photos/Cornu_1/0.5kg.JPG"
 calibration_factor = 0.05 # pixels per mm
 crop_box = (X, Y, X + W, Y + H)
 
