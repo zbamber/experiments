@@ -6,6 +6,7 @@ import scipy.signal
 import scipy.optimize
 import scipy.odr
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Cursor
 from pathlib import Path
 import csv
 import lsfr
@@ -17,16 +18,20 @@ H = 170
 lam = 546e-6  # Wavelength in mm (Mercury green line)
 g = 9.80665
 
-# calibration scale factor (s = d / N)
-cal_known_distance_mm = 150
-cal_pixels_N = 3195.511
+# calibration scale factor (s = d / N) for [Cornu_1, Cornu_2, Cornu_3]
+cal_known_distance_mm = [150, 150, 150]
+cal_pixels_N = [3195.511, 3192.607, 3222.501]
 cal_pixel_end_err = 6.16 / 2 # width of the line / 2
-calibration_factor = cal_known_distance_mm / cal_pixels_N  # mm/pixel
-delta_s = (cal_known_distance_mm / (cal_pixels_N ** 2)) * (np.sqrt(2) * cal_pixel_end_err)
 
 # m NOT M!
 average_mass_kg = 0.50034
 sigma_m_kg = 0.0003 # standard deviation of the masses
+
+SET_INDEX = {
+    'Cornu_1': 0,
+    'Cornu_2': 1,
+    'Cornu_3': 2,
+}
 
 L_MM_BY_SET = {
     'Cornu_1': 158.0,  # 15.8 cm
@@ -56,6 +61,11 @@ def linear_odr(B, x):
 
 
 folder = Path('C:/Users/profp/repos/experiments/Cornu/photos/Cornu_1')
+set_idx = SET_INDEX.get(folder.name, 0)
+d_cal_mm = cal_known_distance_mm[set_idx]
+N_cal_px = cal_pixels_N[set_idx]
+calibration_factor = d_cal_mm / N_cal_px  # mm/pixel
+delta_s = (d_cal_mm / (N_cal_px ** 2)) * (np.sqrt(2) * cal_pixel_end_err)
 L_mm = L_MM_BY_SET.get(folder.name, 100.0)
 
 check_dir = folder.parent.parent / 'checks' / folder.name
@@ -91,10 +101,24 @@ for file in folder.glob('*'):
     original_image = Image.open(file)
 
     plt.figure(figsize=(10, 8))
-    plt.title(f"Click the center of the hyperbola for: {file.name}")
+    plt.title(f"1) Click rough center of the hyperbola for: {file.name}")
     plt.imshow(original_image)
+    cursor = Cursor(plt.gca(), useblit=True, color='red', linewidth=0.8)
     
     # timeout=0 means it will wait indefinitely for click
+    rough_clicks = plt.ginput(1, timeout=0)
+    if not rough_clicks:
+        plt.close()
+        print(f"No click detected for {file.name}. Skipping.")
+        continue
+
+    rx, ry = rough_clicks[0]
+    zoom_half = 250  # half-width of zoom window in pixels
+    plt.xlim(rx - zoom_half, rx + zoom_half)
+    plt.ylim(ry + zoom_half, ry - zoom_half)
+    plt.title(f"2) Click exact center of the hyperbola for: {file.name}")
+    plt.gcf().canvas.draw()
+
     clicks = plt.ginput(1, timeout=0) 
     plt.close()
     
@@ -174,7 +198,10 @@ for file in folder.glob('*'):
         x_n = physical_distance_2xn / 2.0
         x_n_squared = x_n ** 2
 
-        sigma_2xn_p = np.std(row_distances_2xn, ddof=1)
+        sigma_2xn_stat = np.std(row_distances_2xn, ddof=1)
+        sigma_2xn_quant = np.sqrt(2.0) / np.sqrt(12.0)  # quantization error from both ends
+        sigma_2xn_p = np.sqrt(sigma_2xn_stat ** 2 + sigma_2xn_quant ** 2)
+
         sigma_xn_p = sigma_2xn_p / 2.0
         sigma_xn = calibration_factor * sigma_xn_p
         sigma_xn_sq = 2.0 * x_n * sigma_xn
@@ -213,7 +240,10 @@ for file in folder.glob('*'):
         y_n = physical_distance_2yn / 2.0
         y_n_squared = y_n ** 2
 
-        sigma_2yn_p = np.std(col_distances_2yn, ddof=1)
+        sigma_2yn_stat = np.std(col_distances_2yn, ddof=1)
+        sigma_2yn_quant = np.sqrt(2.0) / np.sqrt(12.0)  # quantization error from both ends
+        sigma_2yn_p = np.sqrt(sigma_2yn_stat ** 2 + sigma_2yn_quant ** 2)
+
         sigma_yn_p = sigma_2yn_p / 2.0
         sigma_yn = calibration_factor * sigma_yn_p
         sigma_yn_sq = 2.0 * y_n * sigma_yn
@@ -247,7 +277,7 @@ for file in folder.glob('*'):
     ss_tot = np.sum((x_n_sq_arr - np.mean(x_n_sq_arr)) ** 2)
     r_squared = 1.0 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
 
-    # least squares fit for transverse fringes (y_n^2 = m1_t * n + c1_t)
+    # Graph 2 - least squares fit for transverse fringes (y_n^2 = m1_t * n + c1_t)
     n_values_t_arr = np.asarray(n_values_t, dtype=float)
     y_n_sq_arr = np.asarray(y_n_squared_values, dtype=float)
     y_n_sq_err_arr = np.asarray(y_n_sq_uncertainties, dtype=float)
