@@ -2,17 +2,61 @@
 import numpy as np
 from PIL import Image, ImageDraw
 import scipy
+import scipy.signal
+import scipy.optimize
+import scipy.odr
 import matplotlib.pyplot as plt
 from pathlib import Path
 import csv
 import lsfr
 
+# height and width of the crop box
 W = 826
 H = 170
 
-calibration_factor = 0.0469  # mm per pixel
+lam = 546e-6  # Wavelength in mm (Mercury green line)
+g = 9.80665
+
+# calibration scale factor (s = d / N)
+cal_known_distance_mm = 150
+cal_pixels_N = 3195.511
+cal_pixel_end_err = 6.16 / 2 # width of the line / 2
+calibration_factor = cal_known_distance_mm / cal_pixels_N  # mm/pixel
+delta_s = (cal_known_distance_mm / (cal_pixels_N ** 2)) * (np.sqrt(2) * cal_pixel_end_err)
+
+# m NOT M!
+average_mass_kg = 0.50034
+sigma_m_kg = 0.0003 # standard deviation of the masses
+
+L_MM_BY_SET = {
+    'Cornu_1': 158.0,  # 15.8 cm
+    'Cornu_2': 100.0,  # 10.0 cm
+    'Cornu_3': 180.0,  # 18.0 cm (not entirely sure)
+}
+delta_L_mm = np.sqrt(2) * 0.5
+
+# bar dimensions
+width_2a_mm = 51.82 # bar width
+delta_2a_mm = 0.03 # bar width uncertainty
+thickness_2b_mm = 6.50 # bar thickness
+delta_2b_mm = 0.03 # bar thickness uncertainty
+
+a_mm = width_2a_mm / 2.0
+delta_a_mm = delta_2a_mm / 2.0
+b_mm = thickness_2b_mm / 2.0
+delta_b_mm = delta_2b_mm / 2.0
+
+
+def linear_func(x, m, c):
+    return m * x + c
+
+
+def linear_odr(B, x):
+    return B[0] * x + B[1]
+
 
 folder = Path('C:/Users/profp/repos/experiments/Cornu/photos/Cornu_1')
+L_mm = L_MM_BY_SET.get(folder.name, 100.0)
 
 check_dir = folder.parent.parent / 'checks' / folder.name
 plot_dir = folder.parent.parent / 'plots' / folder.name
@@ -29,7 +73,9 @@ with open(csv_path, 'w', newline='') as csvfile:
     writer = csv.writer(csvfile)
     writer.writerow(['file', 'kappa', 'kappa_prime', 'kappa_err', 'kappa_prime_err'])
 
+masses_kg = []
 kappa_values = []
+kappa_errs = []
 kappa_prime_values = []
 kappa_prime_errs = []
 
@@ -37,6 +83,10 @@ for file in folder.glob('*'):
 
     if 'kg' not in file.name:
         continue
+
+    n = float(file.stem.removesuffix('kg'))
+    num_masses = n / 0.5
+    M = num_masses * average_mass_kg
 
     original_image = Image.open(file)
 
@@ -108,9 +158,11 @@ for file in folder.glob('*'):
         row_left_peaks.append(r_peaks[r_peaks < center_x][::-1])
         row_right_peaks.append(r_peaks[r_peaks > center_x])
 
-    # calculate 2x_n, x_n^2, and uncertainty in x_n
-    x_n_squared_values = []
+    # calculate 2x_n, x_n^2, and uncertainty in x_n^2
+    x_n_values = []
     x_n_uncertainties = []
+    x_n_squared_values = []
+    x_n_sq_uncertainties = []
     n_values = []
 
     min_length = min(min(len(l), len(r)) for l, r in zip(row_left_peaks, row_right_peaks))
@@ -122,17 +174,18 @@ for file in folder.glob('*'):
         x_n = physical_distance_2xn / 2.0
         x_n_squared = x_n ** 2
 
-        row_xn_pixels = row_distances_2xn / 2.0
-        dx_n_stat = np.std(row_xn_pixels, ddof=1) / np.sqrt(10)
-        dx_n_quant = 0.5
-        dx_n_pixels = np.sqrt(dx_n_stat ** 2 + dx_n_quant ** 2)
-        x_n_err = dx_n_pixels * calibration_factor
+        sigma_2xn_p = np.std(row_distances_2xn, ddof=1)
+        sigma_xn_p = sigma_2xn_p / 2.0
+        sigma_xn = calibration_factor * sigma_xn_p
+        sigma_xn_sq = 2.0 * x_n * sigma_xn
 
         # assuming the first clear dark fringe pair is n=1
         fringe_order = n + 1
 
+        x_n_values.append(x_n)
+        x_n_uncertainties.append(sigma_xn)
         x_n_squared_values.append(x_n_squared)
-        x_n_uncertainties.append(x_n_err)
+        x_n_sq_uncertainties.append(sigma_xn_sq)
         n_values.append(fringe_order)
 
     # find peaks on each of the 10 columns individually for transverse fringes
@@ -144,9 +197,11 @@ for file in folder.glob('*'):
         col_top_peaks.append(c_peaks[c_peaks < center_y_t][::-1])
         col_bottom_peaks.append(c_peaks[c_peaks > center_y_t])
 
-    # calculate 2y_n, y_n^2, and uncertainty in y_n
-    y_n_squared_values = []
+    # calculate 2y_n, y_n^2, and uncertainty in y_n^2
+    y_n_values = []
     y_n_uncertainties = []
+    y_n_squared_values = []
+    y_n_sq_uncertainties = []
     n_values_t = []
 
     min_length_t = min(min(len(t), len(b)) for t, b in zip(col_top_peaks, col_bottom_peaks))
@@ -158,34 +213,75 @@ for file in folder.glob('*'):
         y_n = physical_distance_2yn / 2.0
         y_n_squared = y_n ** 2
 
-        col_yn_pixels = col_distances_2yn / 2.0
-        dy_n_stat = np.std(col_yn_pixels, ddof=1) / np.sqrt(10)
-        dy_n_quant = 0.5
-        dy_n_pixels = np.sqrt(dy_n_stat ** 2 + dy_n_quant ** 2)
-        y_n_err = dy_n_pixels * calibration_factor
+        sigma_2yn_p = np.std(col_distances_2yn, ddof=1)
+        sigma_yn_p = sigma_2yn_p / 2.0
+        sigma_yn = calibration_factor * sigma_yn_p
+        sigma_yn_sq = 2.0 * y_n * sigma_yn
 
         fringe_order = n + 1
 
+        y_n_values.append(y_n)
+        y_n_uncertainties.append(sigma_yn)
         y_n_squared_values.append(y_n_squared)
-        y_n_uncertainties.append(y_n_err)
+        y_n_sq_uncertainties.append(sigma_yn_sq)
         n_values_t.append(fringe_order)
 
-    # find curvature
-    lam = 546e-6  # wavelength in mm (Mercury)
+    # Graph 1 - least squares fit(x_n^2 = m1 * n + c1)
+    n_values_arr = np.asarray(n_values, dtype=float)
+    x_n_sq_arr = np.asarray(x_n_squared_values, dtype=float)
+    x_n_sq_err_arr = np.asarray(x_n_sq_uncertainties, dtype=float)
 
-    res = scipy.stats.linregress(x_n_squared_values, n_values)
-    slope, intercept, r_value, p_value, std_err = res
-    kappa = slope * lam
-    kappa_err = std_err * lam
-    r_squared = r_value ** 2
+    popt, pcov = scipy.optimize.curve_fit(
+        linear_func,
+        n_values_arr,
+        x_n_sq_arr,
+        sigma=x_n_sq_err_arr,
+        absolute_sigma=True
+    )
+    m1, c1 = popt
+    sigma_m1, sigma_c1 = np.sqrt(np.diag(pcov))
+    kappa = lam / m1
+    kappa_err = kappa * np.abs(sigma_m1 / m1)
 
-    res_t = scipy.stats.linregress(y_n_squared_values, n_values_t)
-    slope_t, intercept_t, r_value_t, p_value_t, std_err_t = res_t
-    kappa_prime = slope_t * lam
-    kappa_prime_err = std_err_t * lam
-    r_squared_t = r_value_t ** 2
+    ss_res = np.sum((x_n_sq_arr - linear_func(n_values_arr, m1, c1)) ** 2)
+    ss_tot = np.sum((x_n_sq_arr - np.mean(x_n_sq_arr)) ** 2)
+    r_squared = 1.0 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
 
+    # least squares fit for transverse fringes (y_n^2 = m1_t * n + c1_t)
+    n_values_t_arr = np.asarray(n_values_t, dtype=float)
+    y_n_sq_arr = np.asarray(y_n_squared_values, dtype=float)
+    y_n_sq_err_arr = np.asarray(y_n_sq_uncertainties, dtype=float)
+
+    popt_t, pcov_t = scipy.optimize.curve_fit(
+        linear_func,
+        n_values_t_arr,
+        y_n_sq_arr,
+        sigma=y_n_sq_err_arr,
+        absolute_sigma=True
+    )
+    m1_t, c1_t = popt_t
+    sigma_m1_t, sigma_c1_t = np.sqrt(np.diag(pcov_t))
+    kappa_prime = lam / m1_t
+    kappa_prime_err = kappa_prime * np.abs(sigma_m1_t / m1_t)
+
+    ss_res_t = np.sum((y_n_sq_arr - linear_func(n_values_t_arr, m1_t, c1_t)) ** 2)
+    ss_tot_t = np.sum((y_n_sq_arr - np.mean(y_n_sq_arr)) ** 2)
+    r_squared_t = 1.0 - (ss_res_t / ss_tot_t) if ss_tot_t != 0 else 0.0
+
+    # Output for lab book
+    print(f"\n--- {folder.name} | Mass M = {M:.5f} kg ({file.name}) ---")
+    print(f"kappa       = {kappa:.6e} ± {kappa_err:.6e} mm^-1  ({kappa * 1e3:.4f} ± {kappa_err * 1e3:.4f} m^-1)")
+    print(f"kappa_prime = {kappa_prime:.6e} ± {kappa_prime_err:.6e} mm^-1  ({kappa_prime * 1e3:.4f} ± {kappa_prime_err * 1e3:.4f} m^-1)")
+    print(f"{'n':>3} | {'x_n (mm)':>10} | {'sigma_x_n (mm)':>14} | {'x_n^2 (mm^2)':>12} | {'sigma_x_n^2 (mm^2)':>18}")
+    print("-" * 68)
+    for fn, xn_val, sxn_val, xnsq_val, sxnsq_val in zip(
+        n_values, x_n_values, x_n_uncertainties, x_n_squared_values, x_n_sq_uncertainties
+    ):
+        print(f"{fn:>3d} | {xn_val:>10.4f} | {sxn_val:>14.4f} | {xnsq_val:>12.4f} | {sxnsq_val:>18.4f}")
+
+    masses_kg.append(M)
     kappa_values.append(kappa)
+    kappa_errs.append(kappa_err)
     kappa_prime_values.append(kappa_prime)
     kappa_prime_errs.append(kappa_prime_err)
 
@@ -193,30 +289,32 @@ for file in folder.glob('*'):
         writer = csv.writer(csvfile)
         writer.writerow([file.stem, kappa, kappa_prime, kappa_err, kappa_prime_err])
 
-    # generate LSFR plots for n against x_n^2 and y_n^2
+    # generate LSFR plots for x_n^2 and y_n^2 against n
     lsfr_path = lsfr_kappa_dir / f'{file.stem}.png'
     lsfr.create_plot(
-        x_n_squared_values,
-        n_values,
-        [slope, intercept],
-        [std_err, res.intercept_stderr],
+        n_values_arr,
+        x_n_sq_arr,
+        [m1, c1],
+        [sigma_m1, sigma_c1],
+        y_uncertainties=x_n_sq_err_arr,
         r_squared=r_squared,
-        plot_title=f'Longitudinal Fringe Order $n$ vs $x_n^2$ ({file.stem})',
-        x_label=r'$x_n^2$ / $\mathrm{mm}^2$',
-        y_label=r'Fringe Order $n$',
+        plot_title=f'Longitudinal $x_n^2$ vs Fringe Order $n$ ({file.stem})',
+        x_label=r'Fringe Order $n$',
+        y_label=r'$x_n^2$ / $\mathrm{mm}^2$',
         figure_name=str(lsfr_path)
     )
 
     lsfr_path_t = lsfr_kappa_prime_dir / f'{file.stem}.png'
     lsfr.create_plot(
-        y_n_squared_values,
-        n_values_t,
-        [slope_t, intercept_t],
-        [std_err_t, res_t.intercept_stderr],
+        n_values_t_arr,
+        y_n_sq_arr,
+        [m1_t, c1_t],
+        [sigma_m1_t, sigma_c1_t],
+        y_uncertainties=y_n_sq_err_arr,
         r_squared=r_squared_t,
-        plot_title=f'Transverse Fringe Order $n$ vs $y_n^2$ ({file.stem})',
-        x_label=r'$y_n^2$ / $\mathrm{mm}^2$',
-        y_label=r'Fringe Order $n$',
+        plot_title=f'Transverse $y_n^2$ vs Fringe Order $n$ ({file.stem})',
+        x_label=r'Fringe Order $n$',
+        y_label=r'$y_n^2$ / $\mathrm{mm}^2$',
         figure_name=str(lsfr_path_t)
     )
 
@@ -247,16 +345,131 @@ for file in folder.glob('*'):
     plt.close()
 
 if len(kappa_values) >= 2:
-    res_sigma = scipy.stats.linregress(kappa_values, kappa_prime_values)
-    lsfr.create_plot(
-        kappa_values,
-        kappa_prime_values,
-        [res_sigma.slope, res_sigma.intercept],
-        [res_sigma.stderr, res_sigma.intercept_stderr],
-        y_uncertainties=kappa_prime_errs,
-        r_squared=res_sigma.rvalue ** 2,
-        plot_title=f"Transverse vs Longitudinal Curvature ({folder.name})",
-        x_label=r"$\kappa$ / $\mathrm{mm}^{-1}$",
-        y_label=r"$\kappa'$ / $\mathrm{mm}^{-1}$",
-        figure_name=str(plot_dir / "poisson_ratio_lsfr.png")
+    # Sort arrays by mass M
+    sort_idx = np.argsort(masses_kg)
+    masses_arr = np.asarray(masses_kg, dtype=float)[sort_idx]
+    kappa_arr = np.asarray(kappa_values, dtype=float)[sort_idx]
+    kappa_err_arr = np.asarray(kappa_errs, dtype=float)[sort_idx]
+    kappa_prime_arr = np.asarray(kappa_prime_values, dtype=float)[sort_idx]
+    kappa_prime_err_arr = np.asarray(kappa_prime_errs, dtype=float)[sort_idx]
+
+    # Convert lengths and curvatures to SI units (m, m^-1)
+    L_m = L_mm * 1e-3
+    delta_L_m = delta_L_mm * 1e-3
+    a_m = a_mm * 1e-3
+    delta_a_m = delta_a_mm * 1e-3
+    b_m = b_mm * 1e-3
+    delta_b_m = delta_b_mm * 1e-3
+
+    kappa_vals_si = kappa_arr * 1e3
+    sigma_kappa_vals_si = kappa_err_arr * 1e3
+    kappa_prime_vals_si = kappa_prime_arr * 1e3
+    sigma_kappa_prime_vals_si = kappa_prime_err_arr * 1e3
+
+
+    # Graph 3 — ODR Fit of kappa vs G (Finding E and kappa_0)
+    N_m = masses_arr / average_mass_kg
+    sigma_M_vals = np.sqrt(N_m) * sigma_m_kg
+    G_vals = masses_arr * g * L_m
+    sigma_G_vals = sigma_M_vals * g * L_m
+
+    odr_model = scipy.odr.Model(linear_odr)
+    odr_data_E = scipy.odr.RealData(
+        G_vals, kappa_vals_si,
+        sx=np.where(sigma_G_vals == 0, 1e-12, sigma_G_vals),
+        sy=sigma_kappa_vals_si
     )
+    odr_obj_E = scipy.odr.ODR(odr_data_E, odr_model, beta0=[1.0, 0.0])
+    out_E = odr_obj_E.run()
+    m_G, kappa_0 = out_E.beta
+    sigma_m_G, sigma_kappa_0 = out_E.sd_beta
+
+    I_m4 = (4.0 / 3.0) * a_m * (b_m ** 3)
+    E = 1.0 / (m_G * I_m4)
+    sigma_E = E * np.abs(sigma_m_G / m_G)
+
+    lsfr.create_plot(
+        x_data=G_vals,
+        y_data=kappa_vals_si,
+        parameters=[m_G, kappa_0],
+        parameter_uncertainties=[sigma_m_G, sigma_kappa_0],
+        x_uncertainties=sigma_G_vals,
+        y_uncertainties=sigma_kappa_vals_si,
+        plot_title=f"Longitudinal Curvature $\\kappa$ vs Bending Moment $G$ ({folder.name})",
+        x_label=r"Bending Moment $G$ / $\mathrm{N\cdot m}$",
+        y_label=r"$\kappa$ / $\mathrm{m}^{-1}$",
+        figure_name=str(plot_dir / "youngs_modulus_odr.png")
+    )
+
+
+    # Graph 4 — ODR Fit of kappa' vs kappa (Finding sigma and kappa_0')
+    odr_data_sigma = scipy.odr.RealData(
+        kappa_vals_si, kappa_prime_vals_si,
+        sx=sigma_kappa_vals_si, sy=sigma_kappa_prime_vals_si
+    )
+    odr_obj_sigma = scipy.odr.ODR(odr_data_sigma, odr_model, beta0=[0.3, 0.0])
+    out_sigma = odr_obj_sigma.run()
+    poisson_sigma, c_int = out_sigma.beta
+    sigma_poisson, sigma_c_int = out_sigma.sd_beta
+
+    kappa_0_prime = c_int + poisson_sigma * kappa_0
+    sigma_prod = np.abs(poisson_sigma * kappa_0) * np.sqrt(
+        (sigma_poisson / poisson_sigma) ** 2 + (sigma_kappa_0 / kappa_0) ** 2
+    )
+    sigma_kappa_0_prime = np.sqrt(sigma_c_int ** 2 + sigma_prod ** 2)
+
+    lsfr.create_plot(
+        x_data=kappa_vals_si,
+        y_data=kappa_prime_vals_si,
+        parameters=[poisson_sigma, c_int],
+        parameter_uncertainties=[sigma_poisson, sigma_c_int],
+        x_uncertainties=sigma_kappa_vals_si,
+        y_uncertainties=sigma_kappa_prime_vals_si,
+        plot_title=f"Transverse vs Longitudinal Curvature ({folder.name})",
+        x_label=r"$\kappa$ / $\mathrm{m}^{-1}$",
+        y_label=r"$\kappa'$ / $\mathrm{m}^{-1}$",
+        figure_name=str(plot_dir / "poisson_ratio_odr.png")
+    )
+
+    # Systematic Uncertainties
+    delta_I = np.sqrt(
+        ((4.0 / 3.0) * (b_m ** 3) * delta_a_m) ** 2
+        + (4.0 * a_m * (b_m ** 2) * delta_b_m) ** 2
+    )
+
+    delta_E = E * np.sqrt(
+        (delta_L_m / L_m) ** 2
+        + (delta_I / I_m4) ** 2
+        + (2.0 * (delta_s / calibration_factor)) ** 2
+    )
+
+    delta_kappa_0 = np.abs(kappa_0) * (2.0 * (delta_s / calibration_factor))
+    delta_kappa_0_prime = np.abs(kappa_0_prime) * (2.0 * (delta_s / calibration_factor))
+    delta_poisson = 0.0
+
+    total_E = np.sqrt(sigma_E ** 2 + delta_E ** 2)
+    total_poisson = np.sqrt(sigma_poisson ** 2 + delta_poisson ** 2)
+    total_kappa_0 = np.sqrt(sigma_kappa_0 ** 2 + delta_kappa_0 ** 2)
+    total_kappa_0_prime = np.sqrt(sigma_kappa_0_prime ** 2 + delta_kappa_0_prime ** 2)
+
+    summary_rows = [
+        ("Young's Modulus E (Pa)", E, sigma_E, delta_E, total_E),
+        ("Poisson's Ratio sigma", poisson_sigma, sigma_poisson, delta_poisson, total_poisson),
+        ("Longitudinal Residual Curvature kappa_0 (m^-1)", kappa_0, sigma_kappa_0, delta_kappa_0, total_kappa_0),
+        ("Transverse Residual Curvature kappa_0' (m^-1)", kappa_0_prime, sigma_kappa_0_prime, delta_kappa_0_prime, total_kappa_0_prime),
+    ]
+
+    print("\n" + "=" * 95)
+    print(f"{'Parameter':<48} | {'Value':>12} | {'Stat Err':>10} | {'Syst Err':>10} | {'Total Err':>10}")
+    print("-" * 95)
+    for name, val, stat_e, syst_e, tot_e in summary_rows:
+        print(f"{name:<48} | {val:>12.4e} | {stat_e:>10.4e} | {syst_e:>10.4e} | {tot_e:>10.4e}")
+    print("=" * 95 + "\n")
+
+    summary_csv_path = plot_dir / "final_results_summary.csv"
+    with open(summary_csv_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['parameter', 'value', 'stat_err', 'syst_err', 'total_err'])
+        for row in summary_rows:
+            writer.writerow(row)
+

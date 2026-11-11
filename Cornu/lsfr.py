@@ -36,7 +36,7 @@ def chi_squared_function(x_data, y_data, y_uncertainties, parameters):
 
 
 def create_plot(x_data, y_data, parameters, parameter_uncertainties,
-                y_uncertainties=None, r_squared=None,
+                y_uncertainties=None, x_uncertainties=None, r_squared=None,
                 plot_title=r'Fringe Order $n$ vs $x_n^2$',
                 x_label=r'$x_n^2$ / $\mathrm{mm}^2$',
                 y_label=r'Fringe Order $n$',
@@ -46,13 +46,27 @@ def create_plot(x_data, y_data, parameters, parameter_uncertainties,
     x_data = np.asarray(x_data, dtype=float)
     y_data = np.asarray(y_data, dtype=float)
 
+    if x_uncertainties is not None:
+        x_uncertainties = np.asarray(x_uncertainties, dtype=float)
+    if y_uncertainties is not None:
+        y_uncertainties = np.asarray(y_uncertainties, dtype=float)
+
+    if y_uncertainties is not None and x_uncertainties is not None:
+        sigma_eff = np.sqrt(y_uncertainties**2 + (parameters[0] * x_uncertainties)**2)
+    elif y_uncertainties is not None:
+        sigma_eff = y_uncertainties
+    elif x_uncertainties is not None:
+        sigma_eff = np.abs(parameters[0] * x_uncertainties)
+    else:
+        sigma_eff = None
+
     figure = plt.figure(figsize=(8, 6), facecolor='white')
 
     axes_main_plot = figure.add_subplot(211)
 
-    if y_uncertainties is not None:
-        y_uncertainties = np.asarray(y_uncertainties, dtype=float)
-        axes_main_plot.errorbar(x_data, y_data, yerr=y_uncertainties,
+    if y_uncertainties is not None or x_uncertainties is not None:
+        axes_main_plot.errorbar(x_data, y_data, xerr=x_uncertainties,
+                                yerr=y_uncertainties,
                                 fmt=MARKER_STYLE, color=MARKER_COLOUR)
     else:
         axes_main_plot.plot(x_data, y_data, MARKER_STYLE, color=MARKER_COLOUR)
@@ -66,8 +80,8 @@ def create_plot(x_data, y_data, parameters, parameter_uncertainties,
 
     degrees_of_freedom = len(x_data) - 2
 
-    if y_uncertainties is not None:
-        chi_squared = chi_squared_function(x_data, y_data, y_uncertainties,
+    if sigma_eff is not None:
+        chi_squared = chi_squared_function(x_data, y_data, sigma_eff,
                                            parameters)
         reduced_chi_squared = chi_squared / degrees_of_freedom
         axes_main_plot.annotate((r'$\chi^2$ = {0:4.2f}'.
@@ -117,8 +131,8 @@ def create_plot(x_data, y_data, parameters, parameter_uncertainties,
     # Residuals plot
     residuals = y_data - linear_function(x_data, parameters)
     axes_residuals = figure.add_subplot(414)
-    if y_uncertainties is not None:
-        axes_residuals.errorbar(x_data, residuals, yerr=y_uncertainties,
+    if sigma_eff is not None:
+        axes_residuals.errorbar(x_data, residuals, yerr=sigma_eff,
                                 fmt=MARKER_STYLE, color=MARKER_COLOUR)
     else:
         axes_residuals.plot(x_data, residuals, MARKER_STYLE, color=MARKER_COLOUR)
