@@ -60,7 +60,7 @@ def linear_odr(B, x):
     return B[0] * x + B[1]
 
 
-folder = Path('C:/Users/profp/repos/experiments/Cornu/photos/Cornu_1')
+folder = Path('C:/Users/profp/repos/experiments/Cornu/photos/Cornu_3')
 set_idx = SET_INDEX.get(folder.name, 0)
 d_cal_mm = cal_known_distance_mm[set_idx]
 N_cal_px = cal_pixels_N[set_idx]
