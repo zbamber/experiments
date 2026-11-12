@@ -66,6 +66,9 @@ L_m_per_set = []
 cal_factor_per_set = []
 delta_s_per_set = []
 combined_rows = []
+kappa_0_per_set = []
+c_int_per_set = []
+odr_model = scipy.odr.Model(linear_odr)
 
 for set_name in ['Cornu_1', 'Cornu_2', 'Cornu_3']:
     csv_path = base_plots_dir / set_name / 'curvatures.csv'
@@ -93,6 +96,15 @@ for set_name in ['Cornu_1', 'Cornu_2', 'Cornu_3']:
     cal_factor_per_set.append(cal_factor)
     delta_s_per_set.append(delta_s)
 
+    set_G = []
+    set_sigma_G = []
+    set_kappa = []
+    set_sigma_kappa = []
+    set_kappa_prime = []
+    set_sigma_kappa_prime = []
+    set_file_stems = []
+    set_masses = []
+
     for row in rows:
         file_stem = row['file']
         n = float(file_stem.removesuffix('kg'))
@@ -109,28 +121,70 @@ for set_name in ['Cornu_1', 'Cornu_2', 'Cornu_3']:
         kappa_prime_si = float(row['kappa_prime']) * 1e3
         sigma_kappa_prime_si = float(row['kappa_prime_err']) * 1e3
 
-        G_list.append(G)
-        sigma_G_list.append(sigma_G)
-        kappa_si_list.append(kappa_si)
-        sigma_kappa_si_list.append(sigma_kappa_si)
-        kappa_prime_si_list.append(kappa_prime_si)
-        sigma_kappa_prime_si_list.append(sigma_kappa_prime_si)
+        set_G.append(G)
+        set_sigma_G.append(sigma_G)
+        set_kappa.append(kappa_si)
+        set_sigma_kappa.append(sigma_kappa_si)
+        set_kappa_prime.append(kappa_prime_si)
+        set_sigma_kappa_prime.append(sigma_kappa_prime_si)
+        set_file_stems.append(file_stem)
+        set_masses.append(M)
+
+    # Estimate per-set residual curvature intercept (since moving hangers to change L alters G_0)
+    set_G_arr = np.asarray(set_G, dtype=float)
+    set_sG_arr = np.asarray(set_sigma_G, dtype=float)
+    set_k_arr = np.asarray(set_kappa, dtype=float)
+    set_sk_arr = np.asarray(set_sigma_kappa, dtype=float)
+    set_kp_arr = np.asarray(set_kappa_prime, dtype=float)
+    set_skp_arr = np.asarray(set_sigma_kappa_prime, dtype=float)
+
+    out_set_E = scipy.odr.ODR(
+        scipy.odr.RealData(
+            set_G_arr, set_k_arr,
+            sx=np.where(set_sG_arr == 0, 1e-12, set_sG_arr),
+            sy=set_sk_arr
+        ),
+        odr_model,
+        beta0=[1.0, 0.0]
+    ).run()
+    k0_set = out_set_E.beta[1]
+    kappa_0_per_set.append(k0_set)
+
+    out_set_p = scipy.odr.ODR(
+        scipy.odr.RealData(set_k_arr, set_kp_arr, sx=set_sk_arr, sy=set_skp_arr),
+        odr_model,
+        beta0=[0.3, 0.0]
+    ).run()
+    c_int_set = out_set_p.beta[1]
+    c_int_per_set.append(c_int_set)
+
+    for i in range(len(set_G)):
+        G_list.append(set_G[i])
+        sigma_G_list.append(set_sigma_G[i])
+        # Store residual-subtracted curvatures first; mean intercept is added back below
+        kappa_si_list.append(set_kappa[i] - k0_set)
+        sigma_kappa_si_list.append(set_sigma_kappa[i])
+        kappa_prime_si_list.append(set_kappa_prime[i] - c_int_set)
+        sigma_kappa_prime_si_list.append(set_sigma_kappa_prime[i])
 
         combined_rows.append([
-            set_name, file_stem, M, G, sigma_G,
-            kappa_si, sigma_kappa_si, kappa_prime_si, sigma_kappa_prime_si
+            set_name, set_file_stems[i], set_masses[i], set_G[i], set_sigma_G[i],
+            set_kappa[i], set_sigma_kappa[i], set_kappa_prime[i], set_sigma_kappa_prime[i]
         ])
 
 if len(G_list) >= 2:
     print(f"Combining {len(G_list)} data points from sets: {', '.join(loaded_sets)}")
 
+    mean_k0 = float(np.mean(kappa_0_per_set))
+    mean_c_int = float(np.mean(c_int_per_set))
+
     # Sort all points by Bending Moment G
     sort_idx = np.argsort(G_list)
     G_vals = np.asarray(G_list, dtype=float)[sort_idx]
     sigma_G_vals = np.asarray(sigma_G_list, dtype=float)[sort_idx]
-    kappa_vals_si = np.asarray(kappa_si_list, dtype=float)[sort_idx]
+    kappa_vals_si = np.asarray(kappa_si_list, dtype=float)[sort_idx] + mean_k0
     sigma_kappa_vals_si = np.asarray(sigma_kappa_si_list, dtype=float)[sort_idx]
-    kappa_prime_vals_si = np.asarray(kappa_prime_si_list, dtype=float)[sort_idx]
+    kappa_prime_vals_si = np.asarray(kappa_prime_si_list, dtype=float)[sort_idx] + mean_c_int
     sigma_kappa_prime_vals_si = np.asarray(sigma_kappa_prime_si_list, dtype=float)[sort_idx]
 
     # Save combined data table
@@ -145,7 +199,6 @@ if len(G_list) >= 2:
             writer.writerow(combined_rows[idx])
 
     # Graph 3 — Combined ODR Fit of kappa vs G (Finding E and kappa_0)
-    odr_model = scipy.odr.Model(linear_odr)
     odr_data_E = scipy.odr.RealData(
         G_vals, kappa_vals_si,
         sx=np.where(sigma_G_vals == 0, 1e-12, sigma_G_vals),
@@ -184,10 +237,16 @@ if len(G_list) >= 2:
     sigma_poisson, sigma_c_int = out_sigma.sd_beta
 
     kappa_0_prime = c_int + poisson_sigma * kappa_0
-    sigma_prod = np.abs(poisson_sigma * kappa_0) * np.sqrt(
-        (sigma_poisson / poisson_sigma) ** 2 + (sigma_kappa_0 / kappa_0) ** 2
+    cov_sigma_c = out_sigma.cov_beta[0, 1] * out_sigma.res_var
+    sigma_kappa_0_prime = np.sqrt(
+        max(
+            0.0,
+            sigma_c_int ** 2
+            + (kappa_0 * sigma_poisson) ** 2
+            + (poisson_sigma * sigma_kappa_0) ** 2
+            + 2.0 * kappa_0 * cov_sigma_c,
+        )
     )
-    sigma_kappa_0_prime = np.sqrt(sigma_c_int ** 2 + sigma_prod ** 2)
 
     lsfr.create_plot(
         x_data=kappa_vals_si,

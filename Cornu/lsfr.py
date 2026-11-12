@@ -74,7 +74,8 @@ def create_plot(x_data, y_data, parameters, parameter_uncertainties,
     axes_main_plot.plot(x_data, linear_function(x_data, parameters),
                         linestyle=LINE_STYLE, color=LINE_COLOUR)
     axes_main_plot.grid(GRID_LINES)
-    axes_main_plot.set_title(plot_title, fontsize=14)
+    title_fontsize = 11.5 if len(plot_title) > 55 else 14
+    axes_main_plot.set_title(plot_title, fontsize=title_fontsize)
     axes_main_plot.set_xlabel(x_label)
     axes_main_plot.set_ylabel(y_label)
 
@@ -83,7 +84,8 @@ def create_plot(x_data, y_data, parameters, parameter_uncertainties,
     if sigma_eff is not None:
         chi_squared = chi_squared_function(x_data, y_data, sigma_eff,
                                            parameters)
-        reduced_chi_squared = chi_squared / degrees_of_freedom
+        reduced_chi_squared = (chi_squared / degrees_of_freedom
+                               if degrees_of_freedom > 0 else 0.0)
         axes_main_plot.annotate((r'$\chi^2$ = {0:4.2f}'.
                                  format(chi_squared)), (1, 0), (-60, -35),
                                 xycoords='axes fraction', va='top',
